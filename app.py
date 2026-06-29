@@ -1,6 +1,7 @@
-import streamlit as st
-from tools import load_csv, analyze_data, run_pandas_code, plot_chart
 
+import streamlit as st
+from agent import DataAnalysisAgent
+from tools import load_csv
 
 st.set_page_config(
     page_title="DataSense",
@@ -11,78 +12,106 @@ st.set_page_config(
 st.title("📊 DataSense")
 st.markdown("### AI Powered Data Analysis Agent")
 
+# ---------------- Session State ---------------- #
+
+if "agent" not in st.session_state:
+    st.session_state.agent = DataAnalysisAgent()
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "dataset_loaded" not in st.session_state:
+    st.session_state.dataset_loaded = False
+
+
+# ---------------- Sidebar ---------------- #
+
 with st.sidebar:
+
     st.header("Dataset")
 
     uploaded_file = st.file_uploader(
-        "Upload a CSV File",
+        "Upload CSV",
         type=["csv"]
     )
 
-if uploaded_file:
+    if uploaded_file is not None:
+
         result = load_csv(uploaded_file)
-        st.success(f"Uploaded: {uploaded_file.name}")
+
+        st.session_state.dataset_loaded = True
+
+        st.success(f"{uploaded_file.name} uploaded successfully!")
 
         st.write("### Dataset Information")
         st.write(f"Rows : {result['rows']}")
         st.write(f"Columns : {result['columns']}")
 
-        st.write("### Columns")
+        st.write("### Column Names")
         st.write(result["column_names"])
 
         st.write("### Preview")
         st.dataframe(result["preview"])
 
-        if st.button("Analyze Data"):
-            summary = analyze_data()
-            st.write("### Analysis Summary")
-            st.code(summary)
 
-        result = run_pandas_code("""print(df.head())""")
-        st.code(result)
-
-        chart_filename = plot_chart(
-            chart_type="bar",
-            x="Age",
-            y='Annual Income (k$)',
-            title="Annual Income by Age",
-            xlabel="Age",
-            ylabel = "Annual Income"
-        )
-        st.image(chart_filename)
-    
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# ---------------- Chat History ---------------- #
 
 for message in st.session_state.messages:
+
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-user_prompt = st.chat_input(
-    "Ask anything about your dataset..."
-)
 
-if user_prompt:
+# ---------------- Chat Input ---------------- #
+
+prompt = st.chat_input("Ask anything about your dataset...")
+
+
+if prompt:
+
+    if not st.session_state.dataset_loaded:
+
+        st.warning("Please upload a CSV file first.")
+
+        st.stop()
+
+    # Display user message
 
     st.session_state.messages.append(
         {
             "role": "user",
-            "content": user_prompt
+            "content": prompt
         }
     )
 
     with st.chat_message("user"):
-        st.markdown(user_prompt)
+        st.markdown(prompt)
 
-    response = "I received your question."
+    # Generate response
+    with st.chat_message("assistant"):
+
+        with st.spinner("Thinking..."):
+            response = st.session_state.agent.run_agent(
+                prompt,
+                st.session_state.messages
+            )
+
+        if response["type"] == "stream":
+            full_text = st.write_stream(response["content"])
+            display_content = full_text or ""
+
+        elif response["type"] == "text":
+            content = response["content"] or ""
+            st.markdown(content if content else "*(No response)*")
+            display_content = content
+
+        elif response["type"] == "chart":
+            st.image(response["content"], use_container_width=True)
+            display_content = f"[Chart saved: {response['content']}]"
 
     st.session_state.messages.append(
         {
             "role": "assistant",
-            "content": response
+            "content": display_content
         }
     )
-
-    with st.chat_message("assistant"):
-        st.markdown(response)

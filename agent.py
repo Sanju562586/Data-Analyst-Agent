@@ -1,3 +1,4 @@
+
 from tool_registry import get_tool
 from tool_registry import build_function_declarations
 from tools import (
@@ -52,10 +53,25 @@ class DataAnalysisAgent:
             model="gemini-2.5-flash",
             contents=contents,
             config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
                 tools=self.gemini_tools
             )
         )
         return response
+
+    def _generate_response_stream(self, contents):
+
+        stream = self.client.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                tools=self.gemini_tools
+            )
+        )
+        for chunk in stream:
+            if chunk.text:
+                yield chunk.text
 
     def _execute_tool(self, function_call):
 
@@ -72,7 +88,7 @@ class DataAnalysisAgent:
 
         return tool_name, result
 
-    def _build_tool_response(self, tool_name, tool_result):
+    def _build_tool_response(self, tool_name, tool_output):
 
         return types.Content(
             role="tool",
@@ -80,10 +96,72 @@ class DataAnalysisAgent:
                 types.Part.from_function_response(
                     name=tool_name,
                     response={
-                        "result": tool_result
+                        "result": str(tool_output)
                     }
                 )
             ]
         )
-    
 
+    def run_agent(self, user_query, chat_history=None):
+        """
+        Main agent loop.
+        """
+        messages = []
+        
+        if chat_history:
+            for msg in chat_history:
+                role = "model" if msg["role"] == "assistant" else "user"
+                messages.append(
+                    {
+                        "role": role,
+                        "parts": [{"text": msg["content"]}]
+                    }
+                )
+        else:
+            messages.append(
+                {
+                    "role": "user",
+                    "parts": [{"text": user_query}]
+                }
+            )
+
+        last_chart_filename = None
+
+        while True:
+
+            response = self._generate_response(messages)
+
+            if response.function_calls:
+
+                messages.append(
+                    {
+                        "role": "model",
+                        "parts": response.parts
+                    }
+                )
+
+                for function_call in response.function_calls:
+
+                    print(f"Executing: {function_call.name}")
+
+                    try:
+                        tool_name, tool_result = self._execute_tool(function_call)
+
+                        if function_call.name == "plot_chart" and isinstance(tool_result, str) and tool_result.endswith(".png"):
+                            last_chart_filename = tool_result
+
+                    except Exception as e:
+                        tool_name = function_call.name
+                        tool_result = f"Tool execution failed:\n{e}"
+
+                    tool_response = self._build_tool_response(
+                        tool_name,
+                        tool_result
+                    )
+                    messages.append(tool_response)
+                continue
+
+            if last_chart_filename:
+                return {"type": "chart", "content": last_chart_filename}
+
+            return {"type": "stream", "content": self._generate_response_stream(messages)}
