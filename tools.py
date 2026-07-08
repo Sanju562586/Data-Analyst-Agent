@@ -1,10 +1,12 @@
 import pandas as pd
+import numpy as np
 import io
 import contextlib
 import os
 import matplotlib.pyplot as plt
 
 df = None
+
 
 def load_csv(file):
     global df
@@ -28,7 +30,7 @@ def analyze_data():
     stats = df.describe(include="all").to_string()
     missing = df.isnull().sum().to_string()
     dtypes = df.dtypes.to_string()
-    duplicates = df.duplicated().sum()
+    duplicates = len(df) - len(df.drop_duplicates())
     unique = df.nunique().to_string()
 
     numeric_df = df.select_dtypes(include="number")
@@ -79,7 +81,7 @@ def run_pandas_code(code):
 
     if df is None:
         return "No dataset loaded."
-    
+
     local_vars = {
         "df": df,
         "pd": pd
@@ -90,12 +92,31 @@ def run_pandas_code(code):
     try:
         with contextlib.redirect_stdout(output):
             exec(code, {}, local_vars)
-        
+
         return output.getvalue() or "Code executed successfully."
 
     except Exception as e:
         return f"Error: {e}"
 
+
+def remove_duplicates():
+    """
+    Remove rows that are exact duplicates across all columns.
+    Keeps the first occurrence and drops the rest.
+    """
+    global df
+
+    if df is None:
+        return "No dataset loaded."
+
+    total = len(df)
+    df = df.drop_duplicates(keep="first").reset_index(drop=True)
+    removed = total - len(df)
+
+    if removed == 0:
+        return "No duplicate rows found. Dataset unchanged."
+
+    return f"Removed {removed} duplicate rows. {len(df)} rows remain."
 
 
 def plot_chart(chart_type, x=None, y=None, title=None, xlabel=None, ylabel=None):
@@ -111,24 +132,18 @@ def plot_chart(chart_type, x=None, y=None, title=None, xlabel=None, ylabel=None)
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # ---------------- BAR ---------------- #
+    # ── BAR ──
     if chart_type == "bar":
-
         bars = ax.bar(df[x], df[y])
-
         ax.set_title(title or f"{y} vs {x}", fontsize=16, fontweight="bold")
         ax.set_xlabel(xlabel or x, fontsize=12)
         ax.set_ylabel(ylabel or y, fontsize=12)
-
         ax.grid(axis="y", linestyle="--", alpha=0.4)
-
         plt.xticks(rotation=45, ha="right")
-
-        # Value labels
         for bar in bars:
             height = bar.get_height()
             ax.text(
-                bar.get_x() + bar.get_width()/2,
+                bar.get_x() + bar.get_width() / 2,
                 height,
                 f"{height:.1f}",
                 ha="center",
@@ -136,77 +151,37 @@ def plot_chart(chart_type, x=None, y=None, title=None, xlabel=None, ylabel=None)
                 fontsize=9
             )
 
-    # ---------------- LINE ---------------- #
+    # ── LINE ──
     elif chart_type == "line":
-
-        ax.plot(
-            df[x],
-            df[y],
-            marker="o",
-            linewidth=2,
-            label=y
-        )
-
-        ax.set_title(title or f"{y} over {x}",
-                     fontsize=16,
-                     fontweight="bold")
-
+        ax.plot(df[x], df[y], marker="o", linewidth=2, label=y)
+        ax.set_title(title or f"{y} over {x}", fontsize=16, fontweight="bold")
         ax.set_xlabel(xlabel or x)
         ax.set_ylabel(ylabel or y)
-
         ax.grid(True, linestyle="--", alpha=0.5)
-
         ax.legend()
-
         plt.xticks(rotation=45)
 
-    # ---------------- SCATTER ---------------- #
+    # ── SCATTER ──
     elif chart_type == "scatter":
-
         ax.scatter(df[x], df[y])
-
-        ax.set_title(title or f"{y} vs {x}",
-                     fontsize=16,
-                     fontweight="bold")
-
+        ax.set_title(title or f"{y} vs {x}", fontsize=16, fontweight="bold")
         ax.set_xlabel(xlabel or x)
         ax.set_ylabel(ylabel or y)
-
         ax.grid(True, linestyle="--", alpha=0.5)
 
-    # ---------------- HISTOGRAM ---------------- #
+    # ── HISTOGRAM ──
     elif chart_type == "hist":
-
         ax.hist(df[x], bins=20)
-
-        ax.set_title(title or f"Distribution of {x}",
-                     fontsize=16,
-                     fontweight="bold")
-
+        ax.set_title(title or f"Distribution of {x}", fontsize=16, fontweight="bold")
         ax.set_xlabel(xlabel or x)
         ax.set_ylabel(ylabel or "Frequency")
-
         ax.grid(axis="y", linestyle="--", alpha=0.5)
 
-    # ---------------- PIE ---------------- #
+    # ── PIE ──
     elif chart_type == "pie":
-
-        ax.pie(
-            df[y],
-            labels=df[x],
-            autopct="%1.1f%%",
-            startangle=90
-        )
-
-        ax.set_title(title or f"{y} Distribution",
-                     fontsize=16,
-                     fontweight="bold")
-
-        ax.legend(
-            title=x,
-            bbox_to_anchor=(1.05, 1),
-            loc="upper left"
-        )
+        ax.pie(df[y], labels=df[x], autopct="%1.1f%%", startangle=90)
+        ax.set_title(title or f"{y} Distribution", fontsize=16, fontweight="bold")
+        ax.legend(title=x, bbox_to_anchor=(1.05, 1), loc="upper left")
 
     plt.tight_layout()
 
@@ -214,12 +189,30 @@ def plot_chart(chart_type, x=None, y=None, title=None, xlabel=None, ylabel=None)
         os.makedirs("outputs")
     filename = f"outputs/{chart_type}_chart.png"
 
-    plt.savefig(
-        filename,
-        dpi=300,
-        bbox_inches="tight"
-    )
-
+    plt.savefig(filename, dpi=300, bbox_inches="tight")
     plt.close()
 
     return filename
+
+
+def export_csv(filename="exported_dataset"):
+    """
+    Export the current DataFrame to a CSV file.
+    Returns the file path of the saved CSV.
+    """
+    global df
+
+    if df is None:
+        return "No dataset loaded."
+
+    if not os.path.exists("outputs"):
+        os.makedirs("outputs")
+
+    safe_name = filename.strip().replace(" ", "_")
+    if not safe_name.endswith(".csv"):
+        safe_name += ".csv"
+
+    filepath = f"outputs/{safe_name}"
+    df.to_csv(filepath, index=False)
+
+    return filepath

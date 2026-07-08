@@ -5,7 +5,9 @@ from tools import (
     load_csv,
     analyze_data,
     run_pandas_code,
-    plot_chart
+    plot_chart,
+    remove_duplicates,
+    export_csv
 )
 import os
 # pyrefly: ignore [missing-import]
@@ -27,10 +29,12 @@ gemini_tools = [
 ]
 
 TOOL_MAP = {
-    "load_csv": load_csv,
-    "analyze_data": analyze_data,
-    "run_pandas_code": run_pandas_code,
-    "plot_chart": plot_chart
+    "load_csv":          load_csv,
+    "analyze_data":      analyze_data,
+    "run_pandas_code":   run_pandas_code,
+    "plot_chart":        plot_chart,
+    "remove_duplicates": remove_duplicates,
+    "export_csv":        export_csv
 }
 
 with open("system_prompt.txt", "r", encoding="utf-8") as f:
@@ -43,12 +47,10 @@ with open("tools.json", "r", encoding="utf-8") as f:
 class DataAnalysisAgent:
 
     def __init__(self):
-
         self.client = client
         self.gemini_tools = gemini_tools
 
     def _generate_response(self, contents):
-
         response = self.client.models.generate_content(
             model="gemini-2.5-flash",
             contents=contents,
@@ -60,7 +62,6 @@ class DataAnalysisAgent:
         return response
 
     def _generate_response_stream(self, contents):
-
         stream = self.client.models.generate_content_stream(
             model="gemini-2.5-flash",
             contents=contents,
@@ -74,7 +75,6 @@ class DataAnalysisAgent:
                 yield chunk.text
 
     def _execute_tool(self, function_call):
-
         tool_name = function_call.name
         args = function_call.args
 
@@ -89,7 +89,6 @@ class DataAnalysisAgent:
         return tool_name, result
 
     def _build_tool_response(self, tool_name, tool_output):
-
         return types.Content(
             role="tool",
             parts=[
@@ -102,12 +101,17 @@ class DataAnalysisAgent:
             ]
         )
 
-    def run_agent(self, user_query, chat_history=None):
+    def run_agent_stream(self, user_query, chat_history=None):
         """
-        Main agent loop.
+        Streaming agent loop — yields typed events in real time:
+          {"type": "tool_start", "name": <str>}
+          {"type": "tool_done",  "name": <str>}
+          {"type": "text",       "content": <str>}   ← streamed word-by-word
+          {"type": "chart",      "content": <path>}
+          {"type": "csv",        "content": <path>}
         """
         messages = []
-        
+
         if chat_history:
             for msg in chat_history:
                 role = "model" if msg["role"] == "assistant" else "user"
@@ -126,6 +130,7 @@ class DataAnalysisAgent:
             )
 
         last_chart_filename = None
+        last_csv_filename   = None
 
         while True:
 
@@ -133,16 +138,11 @@ class DataAnalysisAgent:
 
             if response.function_calls:
 
-                messages.append(
-                    {
-                        "role": "model",
-                        "parts": response.parts
-                    }
-                )
+                messages.append({"role": "model", "parts": response.parts})
 
                 for function_call in response.function_calls:
 
-                    print(f"Executing: {function_call.name}")
+                    yield {"type": "tool_start", "name": function_call.name}
 
                     try:
                         tool_name, tool_result = self._execute_tool(function_call)
@@ -150,18 +150,29 @@ class DataAnalysisAgent:
                         if function_call.name == "plot_chart" and isinstance(tool_result, str) and tool_result.endswith(".png"):
                             last_chart_filename = tool_result
 
-                    except Exception as e:
-                        tool_name = function_call.name
-                        tool_result = f"Tool execution failed:\n{e}"
+                        if function_call.name == "export_csv" and isinstance(tool_result, str) and tool_result.endswith(".csv"):
+                            last_csv_filename = tool_result
 
-                    tool_response = self._build_tool_response(
-                        tool_name,
-                        tool_result
-                    )
-                    messages.append(tool_response)
-                continue
+                    except Exception as e:
+                        tool_name  = function_call.name
+                        tool_result = f"Tool execution failed: {e}"
+
+                    yield {"type": "tool_done", "name": tool_name}
+
+                    messages.append(self._build_tool_response(tool_name, tool_result))
+
+                continue   # next model turn
+
+            # ── No more tool calls → emit final response ──────────────────────
+            if last_csv_filename:
+                yield {"type": "csv", "content": last_csv_filename}
+                return
 
             if last_chart_filename:
-                return {"type": "chart", "content": last_chart_filename}
+                yield {"type": "chart", "content": last_chart_filename}
+                return
 
-            return {"type": "stream", "content": self._generate_response_stream(messages)}
+            # Stream text chunks
+            for chunk in self._generate_response_stream(messages):
+                yield {"type": "text", "content": chunk}
+            return

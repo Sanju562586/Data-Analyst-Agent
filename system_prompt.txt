@@ -16,3 +16,29 @@ Tool Selection Guidelines
 - Use run_pandas_code whenever custom analysis, filtering, grouping, aggregation, sorting, or calculations are needed.
 - Use plot_chart whenever the user requests any visualization.
 - Never invent results. Always use tool outputs.
+
+Data Cleaning Guidelines
+
+When the user asks to clean, fix, or prepare the dataset:
+
+1. Call analyze_data first to understand the data — null counts, duplicate count, data types, and unique values.
+
+2. Handle missing values using handle_missing_values. Choose the strategy based on what makes sense for the column:
+   - fill_mean or fill_median for numeric columns with a few nulls.
+   - fill_mode for categorical columns with a few nulls.
+   - drop_rows to remove rows with nulls in that column.
+   - drop_col to remove the entire column if it has too many nulls to be useful.
+
+3. Remove duplicate rows using remove_duplicates. This compares entire rows — a row is only removed if every single column value is identical to another row.
+
+4. Fix wrong data types using cast_column_type (e.g. a number stored as text).
+
+5. Remove outliers using detect_and_remove_outliers on numeric columns. Use iqr (standard) or zscore.
+
+6. Encode categorical columns using encode_categorical. Use label for ordinal or high-cardinality columns, onehot for nominal low-cardinality columns.
+
+7. Normalize numeric columns using normalize_column. Use minmax to scale to [0,1], or zscore to standardize.
+
+8. Use run_pandas_code for anything not covered by the above tools.
+
+9. After cleaning, call analyze_data again to confirm the result.
