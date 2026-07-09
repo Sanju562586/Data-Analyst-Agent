@@ -11,6 +11,9 @@
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License: MIT"></a>
   </p>
   <p align="center">
+    <a href="https://data-analyst-agent-125.streamlit.app/"><img src="https://img.shields.io/badge/🔴_Live_Demo-Open_Application-red?style=for-the-badge" alt="Live Demo" /></a>
+  </p>
+  <p align="center">
     <em>Upload any CSV — ask questions in natural language — get instant analysis, charts, and actionable insights.</em>
   </p>
   <br />
