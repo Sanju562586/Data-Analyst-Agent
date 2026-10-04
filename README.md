@@ -2,12 +2,12 @@
   <br />
   <h1 align="center">DataSense AI</h1>
   <p align="center">
-    <strong>Intelligent Data Analysis Agent powered by Google Gemini 2.5 Flash & Streamlit</strong>
+    <strong>Intelligent Data Analysis Agent powered by Google Gemini 3.8 Flash & Streamlit</strong>
     <br />
     <br />
     <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg?style=for-the-badge" alt="Python 3.10+"></a>
     <a href="https://streamlit.io"><img src="https://img.shields.io/badge/Streamlit-1.35+-FF4B4B.svg?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit"></a>
-    <a href="https://aistudio.google.com/"><img src="https://img.shields.io/badge/Gemini-2.5_Flash-8A2BE2.svg?style=for-the-badge&logo=google&logoColor=white" alt="Gemini"></a>
+    <a href="https://aistudio.google.com/"><img src="https://img.shields.io/badge/Gemini-3.8_Flash-8A2BE2.svg?style=for-the-badge&logo=google&logoColor=white" alt="Gemini"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License: MIT"></a>
   </p>
   <p align="center">
@@ -25,7 +25,7 @@
 
 <dl>
   <dt><strong>Autonomous Agent</strong></dt>
-  <dd>Powered by Gemini 2.5 Flash, the agent automatically decides which data tools to use based on your question. It handles the logic so you can focus on the results.</dd>
+  <dd>Powered by Gemini 3.8 Flash, the agent automatically decides which data tools to use based on your question. It handles the logic so you can focus on the results.</dd>
 
   <dt><strong>Real-Time Streaming</strong></dt>
   <dd>Watch the agent's thought process as it executes tools via animated step indicators, and read the response as it streams word-by-word.</dd>

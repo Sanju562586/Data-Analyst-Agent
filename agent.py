@@ -1,4 +1,5 @@
 
+import tools
 from tool_registry import get_tool
 from tool_registry import build_function_declarations
 from tools import (
@@ -10,6 +11,7 @@ from tools import (
     export_csv
 )
 import os
+import time
 # pyrefly: ignore [missing-import]
 from google import genai
 # pyrefly: ignore [missing-import]
@@ -46,37 +48,39 @@ with open("tools.json", "r", encoding="utf-8") as f:
 
 class DataAnalysisAgent:
 
-    def __init__(self):
+    def __init__(self, model: str = None):
         self.client = client
         self.gemini_tools = gemini_tools
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
-    def _generate_response(self, contents):
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                tools=self.gemini_tools
+    def _get_system_instruction(self):
+        instruction = SYSTEM_PROMPT
+        if hasattr(tools, "df") and tools.df is not None:
+            instruction += (
+                f"\n\nCURRENT DATASET STATUS: A dataset is ALREADY loaded in memory with "
+                f"{tools.df.shape[0]} rows and {tools.df.shape[1]} columns. "
+                f"Columns: {list(tools.df.columns)}. "
+                f"Do NOT call load_csv."
             )
+        return instruction
+
+    def _generate_response(self, contents, enable_tools=True):
+        config_kwargs = {
+            "system_instruction": self._get_system_instruction()
+        }
+        if enable_tools:
+            config_kwargs["tools"] = self.gemini_tools
+
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=types.GenerateContentConfig(**config_kwargs)
         )
         return response
 
-    def _generate_response_stream(self, contents):
-        stream = self.client.models.generate_content_stream(
-            model="gemini-2.5-flash",
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                tools=self.gemini_tools
-            )
-        )
-        for chunk in stream:
-            if chunk.text:
-                yield chunk.text
-
     def _execute_tool(self, function_call):
         tool_name = function_call.name
-        args = function_call.args
+        args = function_call.args or {}
 
         if tool_name not in TOOL_MAP:
             return tool_name, f"Tool '{tool_name}' not found."
@@ -90,7 +94,7 @@ class DataAnalysisAgent:
 
     def _build_tool_response(self, tool_name, tool_output):
         return types.Content(
-            role="tool",
+            role="user",
             parts=[
                 types.Part.from_function_response(
                     name=tool_name,
@@ -131,16 +135,40 @@ class DataAnalysisAgent:
 
         last_chart_filename = None
         last_csv_filename   = None
+        max_iterations = 6
+        iteration = 0
+        executed_calls = set()
+        final_text = ""
 
-        while True:
+        while iteration < max_iterations:
+            iteration += 1
 
-            response = self._generate_response(messages)
+            response = self._generate_response(messages, enable_tools=True)
 
             if response.function_calls:
 
-                messages.append({"role": "model", "parts": response.parts})
+                # Check if this exact batch of tool calls was already executed to prevent infinite ping-pong
+                is_repeating = True
+                for fc in response.function_calls:
+                    call_sig = (fc.name, json.dumps(dict(fc.args or {}), sort_keys=True))
+                    if call_sig not in executed_calls:
+                        is_repeating = False
+                        break
+
+                if is_repeating:
+                    # Model is stuck repeating the exact same tool calls; break loop
+                    break
+
+                if response.candidates and response.candidates[0].content:
+                    messages.append(response.candidates[0].content)
+                else:
+                    messages.append({"role": "model", "parts": response.parts})
+
+                tool_parts = []
 
                 for function_call in response.function_calls:
+                    call_sig = (function_call.name, json.dumps(dict(function_call.args or {}), sort_keys=True))
+                    executed_calls.add(call_sig)
 
                     yield {"type": "tool_start", "name": function_call.name}
 
@@ -159,20 +187,52 @@ class DataAnalysisAgent:
 
                     yield {"type": "tool_done", "name": tool_name}
 
-                    messages.append(self._build_tool_response(tool_name, tool_result))
+                    tool_parts.append(
+                        types.Part.from_function_response(
+                            name=tool_name,
+                            response={
+                                "result": str(tool_result)
+                            }
+                        )
+                    )
+
+                messages.append(
+                    types.Content(
+                        role="user",
+                        parts=tool_parts
+                    )
+                )
 
                 continue   # next model turn
 
-            # ── No more tool calls → emit final response ──────────────────────
-            if last_csv_filename:
-                yield {"type": "csv", "content": last_csv_filename}
-                return
+            # Model produced a natural language answer without function calls
+            if hasattr(response, "text") and response.text:
+                final_text = response.text
+            break
 
-            if last_chart_filename:
-                yield {"type": "chart", "content": last_chart_filename}
-                return
+        # If loop reached max iterations or ended without text, request a final answer without tools
+        if not final_text:
+            try:
+                final_response = self._generate_response(messages, enable_tools=False)
+                if hasattr(final_response, "text") and final_response.text:
+                    final_text = final_response.text
+            except Exception:
+                pass
 
-            # Stream text chunks
-            for chunk in self._generate_response_stream(messages):
-                yield {"type": "text", "content": chunk}
-            return
+        # ── Emit final outputs ──────────────────────────────────────────
+        if last_csv_filename:
+            yield {"type": "csv", "content": last_csv_filename}
+
+        if last_chart_filename:
+            yield {"type": "chart", "content": last_chart_filename}
+
+        if final_text:
+            words = final_text.split(" ")
+            for i, word in enumerate(words):
+                space = " " if i < len(words) - 1 else ""
+                yield {"type": "text", "content": word + space}
+                time.sleep(0.012)
+        elif not last_csv_filename and not last_chart_filename:
+            yield {"type": "text", "content": "Analysis complete."}
+
+        return

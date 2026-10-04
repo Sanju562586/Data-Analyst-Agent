@@ -8,17 +8,35 @@ import matplotlib.pyplot as plt
 df = None
 
 
-def load_csv(file):
+def load_csv(path=None, file=None):
     global df
 
-    df = pd.read_csv(file)
+    target = path if path is not None else file
 
-    return {
-        "rows": df.shape[0],
-        "columns": df.shape[1],
-        "column_names": list(df.columns),
-        "preview": df.head()
-    }
+    if target is not None:
+        try:
+            if hasattr(target, "read") or (isinstance(target, str) and os.path.exists(target)):
+                df = pd.read_csv(target)
+            elif df is not None:
+                # Target path does not exist on disk, but dataset is already loaded in memory
+                pass
+            else:
+                return f"Error: File '{target}' does not exist and no dataset is currently loaded."
+        except Exception as e:
+            if df is None:
+                return f"Failed to load CSV: {e}"
+
+    if df is not None:
+        return {
+            "status": "success",
+            "message": "Dataset is loaded in memory.",
+            "rows": int(df.shape[0]),
+            "columns": int(df.shape[1]),
+            "column_names": list(df.columns),
+            "preview": df.head().to_dict(orient="records")
+        }
+
+    return "No dataset loaded. Please provide a valid file path or upload a CSV."
 
 
 def analyze_data():
