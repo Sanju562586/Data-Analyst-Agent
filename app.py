@@ -1,7 +1,12 @@
 # pyrefly: ignore [missing-import]
+import os
+import time
+import dotenv
 import streamlit as st
 from agent import DataAnalysisAgent
 from tools import load_csv
+
+dotenv.load_dotenv()
 
 st.set_page_config(
     page_title="DataSense AI",
@@ -568,8 +573,23 @@ with st.sidebar:
         """, unsafe_allow_html=True)
 
     st.markdown("---")
+    st.markdown('<div class="sidebar-section">🤖 AI Engines & Fallback</div>', unsafe_allow_html=True)
+    groq_on = bool((os.getenv("GROQ_API_KEY") or os.getenv("GROQ") or "").strip())
+    or_on = bool((os.getenv("OPENROUTER_API_KEY") or os.getenv("OPEN_ROUTER") or os.getenv("OPENROUTER") or "").strip())
+    
+    groq_badge = '<span style="color:#34d399;font-weight:600;">● Active</span>' if groq_on else '<span style="color:#ef4444;font-weight:500;">○ Missing Key</span>'
+    or_badge = '<span style="color:#34d399;font-weight:600;">● Active</span>' if or_on else '<span style="color:#ef4444;font-weight:500;">○ Missing Key</span>'
+
+    st.markdown(f"""
+    <div style="font-size:0.75rem;color:#94a3b8;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.6rem 0.7rem;margin-bottom:0.8rem;line-height:1.7;">
+        <div>⚡ <strong>Groq:</strong> {groq_badge}</div>
+        <div>🌐 <strong>OpenRouter:</strong> {or_badge}</div>
+        <div style="font-size:0.68rem;color:#64748b;margin-top:0.3rem;">Auto-fallback enabled on failure</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown('<div class="sidebar-section">💡 Try asking</div>', unsafe_allow_html=True)
-    for hint in ["Summarize this dataset", "Show column distributions", "Find missing values", "Plot a correlation heatmap", "Export cleaned data"]:
+    for hint in ["Summarize this dataset", "Show column distributions", "Find missing values", "Run a SQL query", "Plot a correlation heatmap", "Export cleaned data"]:
         st.markdown(f"<div style='color:#64748b;font-size:0.78rem;padding:0.22rem 0;'>→ {hint}</div>", unsafe_allow_html=True)
 
 
@@ -595,6 +615,7 @@ if not st.session_state.messages and not st.session_state.dataset_loaded:
         Then ask me anything — I will analyze, visualize, and explain your data.</p>
         <div class="suggestion-grid">
             <span class="suggestion-pill">📊 Summarize</span>
+            <span class="suggestion-pill">⚡ SQL Query</span>
             <span class="suggestion-pill">📈 Visualize</span>
             <span class="suggestion-pill">🔍 Find outliers</span>
             <span class="suggestion-pill">🧹 Clean data</span>
@@ -611,9 +632,42 @@ elif not st.session_state.messages and st.session_state.dataset_loaded:
     </div>
     """, unsafe_allow_html=True)
 
-for message in st.session_state.messages:
+for idx, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        if message.get("content"):
+            st.markdown(message["content"])
+
+        if message.get("table") is not None:
+            df_hist = message["table"]
+            rows_hist = message.get("table_rows", len(df_hist))
+            query_hist = message.get("query", "")
+            st.markdown(f"📊 **Query Results** ({rows_hist:,} rows):")
+            if query_hist:
+                with st.expander("🔍 View Executed SQL Query", expanded=False):
+                    st.code(query_hist, language="sql")
+            st.dataframe(df_hist, width='stretch')
+            st.download_button(
+                label="⬇️  Download Query Results (CSV)",
+                data=df_hist.to_csv(index=False).encode("utf-8"),
+                file_name="query_results.csv",
+                mime="text/csv",
+                key=f"hist_table_{idx}"
+            )
+
+        if message.get("chart"):
+            st.image(message["chart"], width='stretch')
+
+        if message.get("csv"):
+            filepath = message["csv"]
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    st.download_button(
+                        label=f"⬇️  Download {os.path.basename(filepath)}",
+                        data=f.read(),
+                        file_name=os.path.basename(filepath),
+                        mime="text/csv",
+                        key=f"hist_csv_{idx}"
+                    )
 
 
 # ─── Chat Input ────────────────────────────────────────────────────────────────
@@ -631,13 +685,18 @@ if prompt:
 
     with st.chat_message("assistant"):
 
-        steps_ph    = st.empty()   # tool pills
-        text_ph     = st.empty()   # streaming text
-        special_ph  = st.empty()   # chart / csv
+        steps_ph = st.empty()   # tool pills
+        text_ph  = st.empty()   # streaming text
+        table_ph = st.empty()   # query results table
+        chart_ph = st.empty()   # chart image
+        csv_ph   = st.empty()   # csv download button
 
-        tool_steps    = []
+        tool_steps = []
         streamed_text = ""
-        display_content = ""
+        last_table_obj = None
+        last_table_rows = 0
+        last_chart_file = None
+        last_csv_file = None
 
         def render_steps():
             if not tool_steps:
@@ -669,6 +728,49 @@ if prompt:
                         break
                 render_steps()
 
+            elif etype == "fallback":
+                st.toast(event.get("content", "Switching to fallback model..."), icon="🔄")
+
+            elif etype == "table":
+                steps_ph.empty()
+                last_table_obj = event["content"]
+                last_table_rows = event.get("row_count", len(last_table_obj))
+                last_query_sql = event.get("query", "")
+                with table_ph.container():
+                    st.markdown(f"📊 **Query Results** ({last_table_rows:,} rows):")
+                    if last_query_sql:
+                        with st.expander("🔍 View Executed SQL Query", expanded=False):
+                            st.code(last_query_sql, language="sql")
+                    st.dataframe(last_table_obj, width='stretch')
+                    st.download_button(
+                        label="⬇️  Download Query Results (CSV)",
+                        data=last_table_obj.to_csv(index=False).encode("utf-8"),
+                        file_name="query_results.csv",
+                        mime="text/csv",
+                        key=f"dl_table_live_{time.time()}"
+                    )
+
+            elif etype == "chart":
+                steps_ph.empty()
+                last_chart_file = event["content"]
+                chart_ph.image(last_chart_file, width='stretch')
+
+            elif etype == "csv":
+                steps_ph.empty()
+                last_csv_file = event["content"]
+                with open(last_csv_file, "rb") as f:
+                    csv_bytes = f.read()
+                filename = os.path.basename(last_csv_file)
+                with csv_ph.container():
+                    st.success(f"✓ Dataset exported as **{filename}**")
+                    st.download_button(
+                        label="⬇️  Download CSV",
+                        data=csv_bytes,
+                        file_name=filename,
+                        mime="text/csv",
+                        key=f"dl_csv_live_{time.time()}"
+                    )
+
             elif etype == "text":
                 if tool_steps:
                     steps_ph.empty()
@@ -679,28 +781,20 @@ if prompt:
                     unsafe_allow_html=True
                 )
 
-            elif etype == "chart":
-                steps_ph.empty()
-                special_ph.image(event["content"], width='stretch')
-                display_content = f"[Chart saved: {event['content']}]"
-
-            elif etype == "csv":
-                steps_ph.empty()
-                filepath = event["content"]
-                with open(filepath, "rb") as f:
-                    csv_bytes = f.read()
-                filename = filepath.split("/")[-1]
-                special_ph.success(f"✓ Dataset exported as **{filename}**")
-                st.download_button(
-                    label="⬇️  Download CSV",
-                    data=csv_bytes,
-                    file_name=filename,
-                    mime="text/csv"
-                )
-                display_content = f"Dataset exported: {filename}"
-
         if streamed_text:
             text_ph.markdown(streamed_text)
-            display_content = streamed_text
 
-    st.session_state.messages.append({"role": "assistant", "content": display_content})
+        message_record = {
+            "role": "assistant",
+            "content": streamed_text or "Analysis complete."
+        }
+        if last_table_obj is not None:
+            message_record["table"] = last_table_obj
+            message_record["table_rows"] = last_table_rows
+            message_record["query"] = last_query_sql
+        if last_chart_file:
+            message_record["chart"] = last_chart_file
+        if last_csv_file:
+            message_record["csv"] = last_csv_file
+
+        st.session_state.messages.append(message_record)

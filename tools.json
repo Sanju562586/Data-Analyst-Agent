@@ -49,6 +49,24 @@
         }
     },
     {
+        "name": "run_sql_query",
+        "description": "Executes a SQL query on the loaded dataset using DuckDB. The dataset table name in SQL is 'df'. Use this for analytical queries, aggregations, filtering, group by, window functions, and complex joins or calculations.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "SQL query to execute against the 'df' table. Example: 'SELECT column1, COUNT(*) FROM df GROUP BY column1 ORDER BY 2 DESC LIMIT 10'"
+                }
+            },
+            "required": ["query"]
+        },
+        "returns": {
+            "type": "string",
+            "description": "Tabular results of the SQL query or an error message."
+        }
+    },
+    {
         "name": "plot_chart",
         "description": "Generates a chart from the loaded dataset and saves it as an image. Supported types: bar, line, scatter, hist, pie.",
         "parameters": {

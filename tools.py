@@ -6,6 +6,7 @@ import os
 import matplotlib.pyplot as plt
 
 df = None
+last_query_df = None
 
 
 def load_csv(path=None, file=None):
@@ -115,6 +116,58 @@ def run_pandas_code(code):
 
     except Exception as e:
         return f"Error: {e}"
+
+
+def run_sql_query(query: str):
+    """
+    Executes a SQL query on the loaded dataset using DuckDB.
+    The dataset is available as the table 'df'.
+    """
+    global df, last_query_df
+
+    if df is None:
+        return "No dataset loaded. Please provide a valid file path or upload a CSV."
+
+    try:
+        import duckdb
+    except ImportError:
+        return "Error: DuckDB is not installed. Please install duckdb using 'pip install duckdb'."
+
+    cleaned_query = query.strip()
+    if cleaned_query.startswith("```"):
+        lines = cleaned_query.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        cleaned_query = "\n".join(lines).strip()
+    cleaned_query = cleaned_query.rstrip(";")
+
+    try:
+        conn = duckdb.connect(database=":memory:")
+        conn.register("df", df)
+        result = conn.execute(cleaned_query).df()
+        last_query_df = result
+
+        if result is None or result.empty:
+            return "Query executed successfully, but returned 0 rows."
+
+        row_count = len(result)
+        preview_limit = 50
+        trimmed_result = result.head(preview_limit)
+
+        try:
+            table_str = trimmed_result.to_markdown(index=False)
+        except Exception:
+            table_str = trimmed_result.to_string(index=False)
+
+        if row_count > preview_limit:
+            return f"Showing first {preview_limit} of {row_count} rows:\n\n{table_str}"
+
+        return f"Query returned {row_count} row(s):\n\n{table_str}"
+
+    except Exception as e:
+        return f"SQL Error: {e}"
 
 
 def remove_duplicates():

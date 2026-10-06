@@ -1,12 +1,10 @@
 import json
-from google import genai
-# pyrefly: ignore [missing-import]
-from google.genai import types
 
 from tools import (
     load_csv,
     analyze_data,
     run_pandas_code,
+    run_sql_query,
     plot_chart,
     remove_duplicates,
     export_csv
@@ -19,6 +17,7 @@ TOOL_MAP = {
     "load_csv":          load_csv,
     "analyze_data":      analyze_data,
     "run_pandas_code":   run_pandas_code,
+    "run_sql_query":     run_sql_query,
     "plot_chart":        plot_chart,
     "remove_duplicates": remove_duplicates,
     "export_csv":        export_csv
@@ -40,14 +39,23 @@ def get_all_tool_definitions():
     return TOOL_DEFINITIONS
 
 
-def build_function_declarations():
-    declarations = []
+def build_openai_tools():
+    """
+    Builds standard OpenAI-compatible tool definitions
+    compatible with Groq, OpenRouter, and any OpenAI-style provider.
+    """
+    tools = []
     for tool in TOOL_DEFINITIONS:
-        declarations.append(
-            types.FunctionDeclaration(
-                name=tool["name"],
-                description=tool["description"],
-                parameters=tool["parameters"]
-            )
-        )
-    return declarations
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["parameters"]
+            }
+        })
+    return tools
+
+
+# Backward compatibility alias
+build_function_declarations = build_openai_tools

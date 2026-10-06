@@ -2,12 +2,13 @@
   <br />
   <h1 align="center">DataSense AI</h1>
   <p align="center">
-    <strong>Intelligent Data Analysis Agent powered by Google Gemini 3.8 Flash & Streamlit</strong>
+    <strong>Intelligent Data Analysis Agent powered by Groq & OpenRouter with Multi-Tier Fallback</strong>
     <br />
     <br />
     <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg?style=for-the-badge" alt="Python 3.10+"></a>
     <a href="https://streamlit.io"><img src="https://img.shields.io/badge/Streamlit-1.35+-FF4B4B.svg?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit"></a>
-    <a href="https://aistudio.google.com/"><img src="https://img.shields.io/badge/Gemini-3.8_Flash-8A2BE2.svg?style=for-the-badge&logo=google&logoColor=white" alt="Gemini"></a>
+    <a href="https://groq.com"><img src="https://img.shields.io/badge/Groq-Llama_3.3_70B-F05A28.svg?style=for-the-badge" alt="Groq"></a>
+    <a href="https://openrouter.ai"><img src="https://img.shields.io/badge/OpenRouter-Multi_Model-6366F1.svg?style=for-the-badge" alt="OpenRouter"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License: MIT"></a>
   </p>
   <p align="center">
@@ -24,8 +25,8 @@
 ## Features
 
 <dl>
-  <dt><strong>Autonomous Agent</strong></dt>
-  <dd>Powered by Gemini 3.8 Flash, the agent automatically decides which data tools to use based on your question. It handles the logic so you can focus on the results.</dd>
+  <dt><strong>Autonomous Agent with Multi-Tier Fallback</strong></dt>
+  <dd>Equipped with automatic provider cascade between Groq (Llama 3.3 70B & 3.1 8B) and OpenRouter (Llama 3.3 & Gemini 2.0 Flash). When one provider or model fails, hits a rate limit, or experiences downtime, it transparently recovers on the next model.</dd>
 
   <dt><strong>Real-Time Streaming</strong></dt>
   <dd>Watch the agent's thought process as it executes tools via animated step indicators, and read the response as it streams word-by-word.</dd>
@@ -50,6 +51,7 @@ The agent is equipped with a highly specific set of tools to handle your data se
 | :--- | :--- | :--- |
 | `load_csv` | **Ingestion** | Safely loads your uploaded CSV into memory for analysis. |
 | `analyze_data` | **Exploratory** | Generates a full EDA report (row counts, nulls, duplicates, correlations). |
+| `run_sql_query` | **In-Memory SQL** | Executes high-speed DuckDB SQL queries directly on the dataset (`df`). |
 | `run_pandas_code` | **Execution** | Securely runs agent-generated pandas code to filter, group, or transform data. |
 | `plot_chart` | **Visualization** | Creates custom Bar, Line, Scatter, Histogram, or Pie charts. |
 | `remove_duplicates` | **Cleaning** | Cleans the active dataset by dropping duplicate rows. |
@@ -61,7 +63,7 @@ The agent is equipped with a highly specific set of tools to handle your data se
 
 ### Prerequisites
 * Python 3.10+
-* A Google Gemini API key ([Get one free here](https://aistudio.google.com/))
+* A Groq API key ([Get free key](https://console.groq.com/)) and/or OpenRouter API key ([Get key](https://openrouter.ai/))
 
 ### 1. Clone the repository
 ```bash
@@ -85,9 +87,13 @@ pip install -r requirements.txt
 ```
 
 ### 4. Configure Environment Variables
-Create a `.env` file in the root directory and add your Gemini API key:
+Create a `.env` file in the root directory and add your keys:
 ```env
-GEMINI=your_google_ai_studio_api_key_here
+# Primary LLM provider
+GROQ_API_KEY=your_groq_api_key_here
+
+# Automatic fallback provider
+OPENROUTER_API_KEY=your_openrouter_api_key_here
 ```
 
 ### 5. Run the application
@@ -120,5 +126,5 @@ Contributions, issues, and feature requests are welcome! Feel free to check the 
 <hr />
 
 <div align="center">
-  <p>Built with precision using Streamlit & Google Gemini</p>
+  <p>Built with precision using Streamlit, Groq & OpenRouter</p>
 </div>
