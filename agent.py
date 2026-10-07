@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import re
 import dotenv
 from typing import List, Dict, Any, Optional
 
@@ -352,10 +353,15 @@ class DataAnalysisAgent:
 
                     tool_name, tool_result = self._execute_tool(fn_name, args)
 
-                    if fn_name == "run_sql_query":
+                    if fn_name in ("run_sql_query", "run_pandas_code"):
                         if hasattr(tools, "last_query_df") and tools.last_query_df is not None:
-                            last_table_df = tools.last_query_df
-                        last_query_sql = args.get("query", "")
+                            new_df = tools.last_query_df
+                            if last_table_df is None or len(new_df) > 1 or len(last_table_df) <= 1:
+                                last_table_df = new_df
+                                if fn_name == "run_sql_query":
+                                    last_query_sql = args.get("query", "")
+                                else:
+                                    last_query_sql = args.get("code", "")
 
                     if fn_name == "plot_chart" and isinstance(tool_result, str) and tool_result.endswith(".png"):
                         last_chart_filename = tool_result
@@ -411,7 +417,8 @@ class DataAnalysisAgent:
             yield {"type": "chart", "content": last_chart_filename}
 
         if final_text:
-            words = final_text.split(" ")
+            cleaned_text = self._sanitize_response_text(final_text, has_table_artifact=(last_table_df is not None))
+            words = cleaned_text.split(" ")
             for i, word in enumerate(words):
                 space = " " if i < len(words) - 1 else ""
                 yield {"type": "text", "content": word + space}
@@ -420,3 +427,48 @@ class DataAnalysisAgent:
             yield {"type": "text", "content": "Analysis complete."}
 
         return
+
+    @staticmethod
+    def _sanitize_response_text(text: str, has_table_artifact: bool = False) -> str:
+        """
+        Detects and strips out dummy markdown tables that only contain ellipsis (...) or dot placeholders.
+        Prevents displaying empty or broken placeholder tables in the chat UI.
+        """
+        if not text:
+            return text
+
+        # Regex matching markdown tables where all rows below header are ellipses / dots / dashes
+        table_pattern = re.compile(
+            r'(\n|^)(\|[^\n]+\|\s*\n\|[-:\s|]+\|\s*\n(?:\|[\s\.\…\-\*|]+\|\s*(?:\n|$))+)',
+            re.MULTILINE
+        )
+
+        def is_dummy_table(match):
+            table_block = match.group(2)
+            lines = [line.strip() for line in table_block.strip().splitlines() if line.strip()]
+            if len(lines) < 3:
+                return match.group(0)
+            body_rows = lines[2:]
+            is_all_dummy = True
+            for row in body_rows:
+                content = row.replace("|", "").strip()
+                if re.search(r'[a-zA-Z0-9]', content):
+                    is_all_dummy = False
+                    break
+            if is_all_dummy:
+                if has_table_artifact:
+                    return "\n\n*The complete matching records are displayed in the interactive table below.*"
+                return ""
+            return match.group(0)
+
+        cleaned = table_pattern.sub(is_dummy_table, text)
+
+        # Clean up dangling introductions followed by the replaced notice or empty lines
+        cleaned = re.sub(
+            r'(?:(?:Here are the details|Below are the records|Here is the list)[^\n:]*:\s*\n*)(\*The complete matching records are displayed in the interactive table below\.\*)',
+            r'\1',
+            cleaned,
+            flags=re.IGNORECASE
+        )
+
+        return cleaned

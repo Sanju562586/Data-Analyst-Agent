@@ -43,7 +43,9 @@ SQL Semantic Precision & Filter Scoping (Generalized):
 
 Response Formatting Guidelines:
 - When the user asks to see data, filter rows, or retrieve customer/record lists (e.g. "give me all...", "show me...", "list top 5..."):
-  1. The full interactive table is automatically rendered directly in the application interface with download capabilities.
-  2. In your written response, provide a direct, concise summary of the key findings (e.g., total matches found, relevant averages, thresholds, or notable patterns).
-  3. NEVER write passive or detached meta-commentary like "Based on the provided output, the SQL query has successfully filtered the dataset... In summary, the SQL query effectively filtered...". Speak directly to the data as an analyst!
-  4. If the query asks for top items or comparisons, highlight the key metrics and top values in bullet points or markdown tables.
+  1. For record retrieval and filtering queries, you MUST execute a query that returns the actual rows (e.g., `SELECT * FROM df WHERE ...` or assign filtered DataFrame). Do NOT only run aggregate functions (like COUNT/AVG) when the user specifically requested the records.
+  2. The full interactive table is automatically rendered directly in the application interface with sorting, pagination, and CSV download capabilities.
+  3. In your written response, provide a direct, concise summary of the key findings (e.g., total matches found, relevant averages, thresholds, or notable patterns).
+  4. CRITICAL RULE: NEVER output dummy, placeholder, or ellipsis markdown tables (such as rows with `...` or `| ... | ... | ... |`). If you include a markdown table in your response text, it MUST contain ACTUAL data rows from the tool output (e.g. previewing the first 5 to 10 matching records with their real values). Never create an empty table outline or a table containing `...`.
+  5. NEVER write passive or detached meta-commentary like "Based on the provided output, the SQL query has successfully filtered the dataset... In summary, the SQL query effectively filtered...". Speak directly to the data as an analyst!
+  6. If the query asks for top items, rankings, or comparisons, highlight the key metrics and top values using bullet points or clean markdown tables with genuine values.

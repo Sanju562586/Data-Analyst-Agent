@@ -96,23 +96,81 @@ def analyze_data():
 
 
 def run_pandas_code(code):
-    global df
+    global df, last_query_df
 
     if df is None:
         return "No dataset loaded."
 
     local_vars = {
         "df": df,
-        "pd": pd
+        "pd": pd,
+        "np": np
     }
+
+    # Ensure pandas displays full content without premature ellipsis truncation
+    pd.set_option("display.max_rows", 100)
+    pd.set_option("display.max_columns", 50)
+    pd.set_option("display.width", 1000)
 
     output = io.StringIO()
 
     try:
-        with contextlib.redirect_stdout(output):
-            exec(code, {}, local_vars)
+        cleaned_code = code.strip()
+        if cleaned_code.startswith("```"):
+            lines = cleaned_code.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            cleaned_code = "\n".join(lines).strip()
 
-        return output.getvalue() or "Code executed successfully."
+        with contextlib.redirect_stdout(output):
+            # Check if code is a single expression that can be evaluated directly
+            expr_val = None
+            try:
+                expr_val = eval(cleaned_code, {}, local_vars)
+            except Exception:
+                expr_val = None
+
+            if expr_val is not None:
+                if isinstance(expr_val, (pd.DataFrame, pd.Series)):
+                    if isinstance(expr_val, pd.Series):
+                        expr_val = expr_val.to_frame()
+                    last_query_df = expr_val
+                    print(expr_val.to_string())
+                else:
+                    print(expr_val)
+            else:
+                exec(cleaned_code, {}, local_vars)
+
+        # Inspect local_vars to see if any new/filtered DataFrame was created
+        new_dfs = [
+            v for k, v in local_vars.items()
+            if k not in ("df", "pd", "np") and isinstance(v, (pd.DataFrame, pd.Series))
+        ]
+        if new_dfs:
+            candidate_df = new_dfs[-1]
+            if isinstance(candidate_df, pd.Series):
+                candidate_df = candidate_df.to_frame()
+            last_query_df = candidate_df
+
+        printed_output = output.getvalue().strip()
+
+        # If code didn't print anything but produced/filtered a DataFrame, provide a preview
+        if not printed_output and last_query_df is not None:
+            preview_limit = 50
+            row_count = len(last_query_df)
+            trimmed = last_query_df.head(preview_limit)
+            try:
+                tbl = trimmed.to_markdown(index=False)
+            except Exception:
+                tbl = trimmed.to_string(index=False)
+            if row_count > preview_limit:
+                printed_output = f"Produced {row_count} rows (showing first {preview_limit}):\n\n{tbl}"
+            else:
+                printed_output = f"Produced {row_count} rows:\n\n{tbl}"
+
+        return printed_output or "Code executed successfully."
 
     except Exception as e:
         return f"Error: {e}"

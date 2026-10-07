@@ -32,25 +32,25 @@
     },
     {
         "name": "run_pandas_code",
-        "description": "Executes custom Python/pandas code on the loaded DataFrame. The DataFrame is available as 'df'. Use print() to return output. Use this for any custom analysis, filtering, grouping, aggregation, sorting, feature engineering, or transformation not covered by the other tools.",
+        "description": "Executes custom Python/pandas code on the loaded DataFrame. The DataFrame is available as 'df'. Use this for any custom analysis, filtering, grouping, aggregation, sorting, or transformation. Any resulting DataFrame will be captured and rendered as an interactive table.",
         "parameters": {
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "Python pandas code to execute. Use 'df' to access the dataset. Use print() for output."
+                    "description": "Python pandas code to execute. Use 'df' to access the dataset. Use print() for output or assign/evaluate a filtered DataFrame."
                 }
             },
             "required": ["code"]
         },
         "returns": {
             "type": "string",
-            "description": "Printed output from the code, or an error message."
+            "description": "Printed output or tabular preview from the code, or an error message."
         }
     },
     {
         "name": "run_sql_query",
-        "description": "Executes a SQL query on the loaded dataset using DuckDB. The dataset table name in SQL is 'df'. Use this for analytical queries, aggregations, filtering, group by, window functions, and complex joins or calculations.",
+        "description": "Executes a SQL query on the loaded dataset using DuckDB. The dataset table name in SQL is 'df'. Use this for analytical queries, aggregations, filtering, group by, window functions, and retrieving rows. When the user asks for records or filtered rows (e.g. 'give me all male customers...'), execute 'SELECT * FROM df WHERE ...' to retrieve the actual records.",
         "parameters": {
             "type": "object",
             "properties": {
