@@ -55,6 +55,9 @@ The agent is equipped with a highly specific set of tools to handle your data se
 | `run_pandas_code` | **Execution** | Securely runs agent-generated pandas code to filter, group, or transform data. |
 | `plot_chart` | **Visualization** | Creates custom Bar, Line, Scatter, Histogram, or Pie charts. |
 | `remove_duplicates` | **Cleaning** | Cleans the active dataset by dropping duplicate rows. |
+| `handle_missing_values` | **Preprocessing** | Automatically imputes (mean, median, mode, fill) or drops nulls with summary. |
+| `detect_and_handle_outliers` | **Preprocessing** | Statistical outlier detection (IQR, Z-Score) with clipping, dropping, or flagging. |
+| `convert_column_types` | **Preprocessing** | Parses messy dates, cleans currency symbols/commas, and casts column types. |
 | `export_csv` | **Extraction** | Saves the current state of the dataset and provides a download button. |
 
 <br />

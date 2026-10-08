@@ -119,6 +119,84 @@
         }
     },
     {
+        "name": "handle_missing_values",
+        "description": "Automatically imputes or cleans missing (null/NaN) values in the loaded dataset using various statistical strategies and returns a detailed before/after summary. Changes are saved directly to the active dataset.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "strategy": {
+                    "type": "string",
+                    "description": "Imputation or cleaning strategy: 'mean' (numeric only), 'median' (numeric only), 'mode' (most frequent value), 'drop' (remove rows with missing values), or 'fill' (fill with specified fill_value).",
+                    "enum": ["mean", "median", "mode", "drop", "fill"]
+                },
+                "columns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of column names to apply the strategy to. If omitted, applies to all columns with missing values (or all numeric columns for mean/median)."
+                },
+                "fill_value": {
+                    "description": "The constant value to use when strategy is 'fill'. Can be a string, number, or boolean."
+                }
+            },
+            "required": ["strategy"]
+        },
+        "returns": {
+            "type": "string",
+            "description": "A detailed before/after summary report of missing values and dataset shape."
+        }
+    },
+    {
+        "name": "detect_and_handle_outliers",
+        "description": "Detects statistical outliers in numeric columns using IQR (Interquartile Range) or Z-score method and handles them via clipping (winsorizing), dropping rows, or creating flag columns. Prevents skewed distributions without breaking the dataset.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "columns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional list of numeric column names to analyze. If omitted, analyzes all numeric columns in the dataset."
+                },
+                "method": {
+                    "type": "string",
+                    "description": "Outlier detection method: 'iqr' (1.5 * IQR rule) or 'zscore' (standard score threshold |z| > 3). Defaults to 'iqr'.",
+                    "enum": ["iqr", "zscore"]
+                },
+                "action": {
+                    "type": "string",
+                    "description": "Action to take on detected outliers: 'clip' (cap outliers at lower/upper bounds), 'drop' (remove rows containing outliers), or 'flag' (add boolean column '{column}_outlier' marking outliers). Defaults to 'clip'.",
+                    "enum": ["clip", "drop", "flag"]
+                }
+            },
+            "required": []
+        },
+        "returns": {
+            "type": "string",
+            "description": "A summary report of detected outliers per column, bounds calculated, action applied, and dataset shape."
+        }
+    },
+    {
+        "name": "convert_column_types",
+        "description": "Parses messy dates, strips currency symbols ($, €, £, ¥, ₹) and formatting commas, and cleanly converts column data types in the active dataset. Returns a summary of converted columns.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "column_mapping": {
+                    "type": "object",
+                    "description": "Dictionary mapping column names to target data types. Supported types: 'numeric' / 'float', 'integer' / 'int', 'datetime' / 'date', 'string' / 'str', 'boolean' / 'bool', 'categorical'. Example: {\"order_date\": \"datetime\", \"price\": \"numeric\"}"
+                }
+            },
+            "required": ["column_mapping"]
+        },
+        "returns": {
+            "type": "string",
+            "description": "A summary report of converted columns, old and new data types, and any coerced values."
+        }
+    },
+    {
         "name": "export_csv",
         "description": "Exports the current dataset to a CSV file and returns the file path. Call this when the user wants to download or save the dataset after cleaning or analysis. The filename parameter is optional - if not specified, the file will be named 'exported_dataset.csv'.",
         "parameters": {

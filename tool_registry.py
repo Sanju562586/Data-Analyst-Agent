@@ -7,6 +7,9 @@ from tools import (
     run_sql_query,
     plot_chart,
     remove_duplicates,
+    handle_missing_values,
+    detect_and_handle_outliers,
+    convert_column_types,
     export_csv
 )
 
@@ -14,13 +17,16 @@ with open("tools.json", "r", encoding="utf-8") as f:
     TOOL_DEFINITIONS = json.load(f)
 
 TOOL_MAP = {
-    "load_csv":          load_csv,
-    "analyze_data":      analyze_data,
-    "run_pandas_code":   run_pandas_code,
-    "run_sql_query":     run_sql_query,
-    "plot_chart":        plot_chart,
-    "remove_duplicates": remove_duplicates,
-    "export_csv":        export_csv
+    "load_csv":                   load_csv,
+    "analyze_data":               analyze_data,
+    "run_pandas_code":            run_pandas_code,
+    "run_sql_query":              run_sql_query,
+    "plot_chart":                 plot_chart,
+    "remove_duplicates":          remove_duplicates,
+    "handle_missing_values":      handle_missing_values,
+    "detect_and_handle_outliers": detect_and_handle_outliers,
+    "convert_column_types":       convert_column_types,
+    "export_csv":                 export_csv
 }
 
 
