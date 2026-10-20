@@ -4,7 +4,7 @@ import numpy as np
 import json
 import tools
 from tool_registry import build_openai_tools, get_tool, TOOL_MAP as REGISTRY_TOOL_MAP
-from agent import TOOL_MAP as AGENT_TOOL_MAP
+from agent import TOOL_MAP as AGENT_TOOL_MAP, DataAnalysisAgent
 
 
 class TestDataCleaningTools(unittest.TestCase):
@@ -216,6 +216,58 @@ class TestDataCleaningTools(unittest.TestCase):
         self.assertIn("handle_missing_values", openai_tool_names)
         self.assertIn("detect_and_handle_outliers", openai_tool_names)
         self.assertIn("convert_column_types", openai_tool_names)
+
+    def test_run_sql_query_with_special_characters_and_backticks(self):
+        tools.df = pd.DataFrame({
+            "CustomerID": [1, 2, 3],
+            "Genre": ["Female", "Female", "Male"],
+            "Age": [18, 19, 25],
+            "Annual Income (k$)": [15, 25, 35]
+        })
+        # Test backtick quoting auto-converted to double quotes
+        res = tools.run_sql_query("SELECT AVG(`Annual Income (k$)`) as avg_income FROM df WHERE Genre = 'Female' AND Age < 20")
+        self.assertNotIn("SQL Error", res)
+        self.assertIn("20", res)
+
+        # Test bracket quoting auto-converted to double quotes
+        res2 = tools.run_sql_query("SELECT AVG([Annual Income (k$)]) as avg_income FROM df WHERE Genre = 'Female' AND Age < 20")
+        self.assertNotIn("SQL Error", res2)
+        self.assertIn("20", res2)
+
+        # Test unquoted special column auto-quoted
+        res3 = tools.run_sql_query("SELECT AVG(Annual Income (k$)) as avg_income FROM df WHERE Genre = 'Female' AND Age < 20")
+        self.assertNotIn("SQL Error", res3)
+        self.assertIn("20", res3)
+
+    def test_sanitize_response_text_removes_unnecessary_explanation(self):
+        noisy_response = (
+            "To find the average annual income of female customers whose age is less than 20, we first need to ensure that the 'Genre' column contains the string 'Female' for female customers. However, the original dataset description does not explicitly state this. Assuming the 'Genre' column does indeed represent gender, we can proceed with the query.\n\n"
+            "Since the SQL query failed due to the column name containing spaces and special characters, we need to adjust the query to properly handle this.\n\n"
+            "Let's try again with a modified query that correctly handles the column name:\n\n"
+            "SELECT AVG(`Annual Income (k$)`) \n"
+            "FROM df \n"
+            "WHERE Genre = 'Female' AND Age < 20\n"
+            "However, the error message indicates that the SQL parser is not able to handle the column name Annual Income (k$).\n\n"
+            "We can use the run_pandas_code tool to achieve the same result:\n\n"
+            "```python\n"
+            "import pandas as pd\n\n"
+            "# Assuming df is the DataFrame\n"
+            "female_customers_under_20 = df[(df['Genre'] == 'Female') & (df['Age'] < 20)]\n"
+            "average_annual_income = female_customers_under_20['Annual Income (k$)'].mean()\n\n"
+            "print(average_annual_income)\n"
+            "```\n\n"
+            "The average annual income of female customers under 20 is **$35.20k**."
+        )
+
+        cleaned = DataAnalysisAgent._sanitize_response_text(
+            noisy_response,
+            user_query="What is the average annual income of female customers under 20?"
+        )
+        self.assertNotIn("Since the SQL query failed", cleaned)
+        self.assertNotIn("However, the error message indicates", cleaned)
+        self.assertNotIn("run_pandas_code tool", cleaned)
+        self.assertNotIn("import pandas as pd", cleaned)
+        self.assertIn("The average annual income of female customers under 20 is **$35.20k**.", cleaned)
 
 
 if __name__ == "__main__":

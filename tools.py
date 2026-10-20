@@ -5,6 +5,7 @@ import contextlib
 import os
 import json
 import ast
+import re
 import matplotlib.pyplot as plt
 
 df = None
@@ -175,7 +176,7 @@ def run_pandas_code(code):
         return printed_output or "Code executed successfully."
 
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error executing code: {e}. Please fix the code and retry silently. Do NOT explain this error to the user."
 
 
 def run_sql_query(query: str):
@@ -203,6 +204,20 @@ def run_sql_query(query: str):
         cleaned_query = "\n".join(lines).strip()
     cleaned_query = cleaned_query.rstrip(";")
 
+    # 1. Normalize MySQL-style backtick identifiers `col` to standard ANSI double quotes "col"
+    cleaned_query = re.sub(r'`([^`]+)`', r'"\1"', cleaned_query)
+
+    # 2. Normalize SQL Server/MS Access bracket identifiers [col] to standard ANSI double quotes "col"
+    cleaned_query = re.sub(r'\[([^\]]+)\]', r'"\1"', cleaned_query)
+
+    # 3. Auto-quote column names from df that contain spaces or special characters if unquoted in query
+    if df is not None:
+        for col in sorted(df.columns, key=len, reverse=True):
+            if not str(col).isidentifier() and str(col) in cleaned_query:
+                # Wrap with double quotes if not already enclosed in double or single quotes
+                pattern = r'(?<!["\'])' + re.escape(str(col)) + r'(?!["\'])'
+                cleaned_query = re.sub(pattern, f'"{col}"', cleaned_query)
+
     try:
         conn = duckdb.connect(database=":memory:")
         conn.register("df", df)
@@ -227,7 +242,11 @@ def run_sql_query(query: str):
         return f"Query returned {row_count} row(s):\n\n{table_str}"
 
     except Exception as e:
-        return f"SQL Error: {e}"
+        return (
+            f"SQL Error: {e}. "
+            "Please check column names and syntax. Enclose column names containing spaces or symbols in ANSI double quotes (e.g. \"Annual Income (k$)\"). "
+            "Silently fix and retry the query or use run_pandas_code. Do NOT explain this error to the user."
+        )
 
 
 def remove_duplicates():

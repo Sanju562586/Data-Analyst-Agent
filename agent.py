@@ -184,12 +184,21 @@ class DataAnalysisAgent:
     def _get_system_instruction(self) -> str:
         instruction = SYSTEM_PROMPT
         if hasattr(tools, "df") and tools.df is not None:
+            cols = list(tools.df.columns)
+            special_cols = [c for c in cols if not str(c).isidentifier()]
             instruction += (
                 f"\n\nCURRENT DATASET STATUS: A dataset is ALREADY loaded in memory with "
-                f"{tools.df.shape[0]} rows and {tools.df.shape[1]} columns. "
-                f"Columns: {list(tools.df.columns)}. "
+                f"{tools.df.shape[0]} rows and {tools.df.shape[1]} columns.\n"
+                f"Available Columns: {cols}.\n"
                 f"Do NOT call load_csv."
             )
+            if special_cols:
+                quoted = ", ".join(f'"{c}"' for c in special_cols)
+                instruction += (
+                    f"\nCRITICAL COLUMN QUOTING IN SQL: The following columns contain spaces or special characters: {special_cols}. "
+                    f"When writing SQL queries (`run_sql_query`), you MUST enclose them in ANSI double quotes (e.g. {quoted}). "
+                    f"NEVER use backticks (` `), which cause DuckDB syntax errors."
+                )
         return instruction
 
     def _execute_tool(self, tool_name: str, args: Dict[str, Any]):
@@ -377,18 +386,68 @@ class DataAnalysisAgent:
 
                     yield {"type": "tool_done", "name": tool_name}
 
+                    tool_content = str(tool_result)
+                    if "error" in tool_content.lower() or "failed" in tool_content.lower():
+                        tool_content += (
+                            "\n[SYSTEM DIRECTIVE: Silently correct the query or code and execute the tool again immediately. "
+                            "Do NOT explain the error, your attempts, or debugging steps to the user. "
+                            "Output only the direct, concise analytical answer once the result is obtained.]"
+                        )
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "name": fn_name,
-                        "content": str(tool_result)
+                        "content": tool_content
                     })
 
                 continue  # Next model turn with tool outputs
 
-            # Natural language answer obtained
+            # If the model didn't call tools, check if it accidentally dumped unexecuted code in text
             if response_msg.content:
-                final_text = response_msg.content
+                content = response_msg.content
+                has_code_dump = (
+                    ("run_pandas_code" in content or "run_sql_query" in content or "import pandas" in content)
+                    and ("```" in content or "SELECT " in content or "df[" in content)
+                )
+                user_wants_code = any(w in user_query.lower() for w in ["show code", "write code", "python code", "sql query", "provide code", "give code"])
+
+                if has_code_dump and not user_wants_code and iteration < max_iterations:
+                    py_match = re.search(r'```(?:python|py)?\s*(.*?df\[.*?)```', content, re.DOTALL)
+                    sql_match = re.search(r'```(?:sql)?\s*(SELECT.*?)```', content, re.DOTALL | re.IGNORECASE)
+
+                    if py_match:
+                        extracted_code = py_match.group(1).strip()
+                        yield {"type": "tool_start", "name": "run_pandas_code"}
+                        t_name, t_res = self._execute_tool("run_pandas_code", {"code": extracted_code})
+                        yield {"type": "tool_done", "name": "run_pandas_code"}
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                f"[SYSTEM DIRECTIVE: Code was executed with output:\n{t_res}\n\n"
+                                "Now present ONLY the direct, concise final answer to the user. "
+                                "Do NOT include any code, explanations of errors, tool names, or internal narration.]"
+                            )
+                        })
+                        continue
+                    elif sql_match:
+                        extracted_sql = sql_match.group(1).strip()
+                        yield {"type": "tool_start", "name": "run_sql_query"}
+                        t_name, t_res = self._execute_tool("run_sql_query", {"query": extracted_sql})
+                        yield {"type": "tool_done", "name": "run_sql_query"}
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                f"[SYSTEM DIRECTIVE: Query was executed with output:\n{t_res}\n\n"
+                                "Now present ONLY the direct, concise final answer to the user. "
+                                "Do NOT include any code, explanations of errors, tool names, or internal narration.]"
+                            )
+                        })
+                        continue
+
+                final_text = content
             break
 
         # If loop reached max iterations or ended without text, request final summary without tools
@@ -423,27 +482,38 @@ class DataAnalysisAgent:
             yield {"type": "chart", "content": last_chart_filename}
 
         if final_text:
-            cleaned_text = self._sanitize_response_text(final_text, has_table_artifact=(last_table_df is not None))
-            words = cleaned_text.split(" ")
-            for i, word in enumerate(words):
-                space = " " if i < len(words) - 1 else ""
-                yield {"type": "text", "content": word + space}
-                time.sleep(0.012)
+            cleaned_text = self._sanitize_response_text(
+                final_text,
+                has_table_artifact=(last_table_df is not None),
+                user_query=user_query
+            )
+            if cleaned_text:
+                words = cleaned_text.split(" ")
+                for i, word in enumerate(words):
+                    space = " " if i < len(words) - 1 else ""
+                    yield {"type": "text", "content": word + space}
+                    time.sleep(0.012)
+            elif last_table_df is not None:
+                yield {"type": "text", "content": "Here are the query results displayed in the table below."}
+            else:
+                yield {"type": "text", "content": "Analysis complete."}
         elif not last_csv_filename and not last_chart_filename and last_table_df is None:
             yield {"type": "text", "content": "Analysis complete."}
 
         return
 
     @staticmethod
-    def _sanitize_response_text(text: str, has_table_artifact: bool = False) -> str:
+    def _sanitize_response_text(text: str, has_table_artifact: bool = False, user_query: str = "") -> str:
         """
-        Detects and strips out dummy markdown tables that only contain ellipsis (...) or dot placeholders.
-        Prevents displaying empty or broken placeholder tables in the chat UI.
+        Cleans the agent response text:
+        1. Strips out dummy markdown tables that only contain ellipsis (...) or dot placeholders.
+        2. Strips out internal meta-commentary, debugging narration, and retry chatter.
+        3. Strips out unprompted raw code blocks if the user did not ask for code.
         """
         if not text:
             return text
 
-        # Regex matching markdown tables where all rows below header are ellipses / dots / dashes
+        # 1. Regex matching markdown tables where all rows below header are ellipses / dots / dashes
         table_pattern = re.compile(
             r'(\n|^)(\|[^\n]+\|\s*\n\|[-:\s|]+\|\s*\n(?:\|[\s\.\…\-\*|]+\|\s*(?:\n|$))+)',
             re.MULTILINE
@@ -469,7 +539,22 @@ class DataAnalysisAgent:
 
         cleaned = table_pattern.sub(is_dummy_table, text)
 
-        # Clean up dangling introductions followed by the replaced notice or empty lines
+        # 2. Strip internal debugging narration, retries, and trial-and-error explanations
+        meta_patterns = [
+            r'(?i)(?:to find [^,\n]+, )?we (?:first )?need to ensure that the [^\n]+\n*',
+            r'(?i)however,\s+the original dataset description does not explicitly state this[^\n]*\n*',
+            r'(?i)assuming (?:that )?the [\'"][^\'"]+[\'"] column does indeed represent[^\n]*\n*',
+            r'(?i)(?:since|because)\s+the\s+(?:sql\s+)?query\s+failed[^\n]*\n*',
+            r'(?i)let[\'’]s\s+try\s+again\s+with\s+(?:a\s+)?modified\s+query[^\n]*:?\n*',
+            r'(?i)however,\s+the\s+error\s+message\s+indicates[^\n]*\n*',
+            r'(?i)we\s+can\s+use\s+the\s+(?:run_pandas_code|run_sql_query)\s+tool\s+to\s+achieve\s+the\s+same\s+result:?\n*',
+            r'(?i)the\s+sql\s+query\s+failed[^\n]*\n*',
+            r'(?i)error message indicates that the sql parser is not able to handle[^\n]*\n*'
+        ]
+        for mp in meta_patterns:
+            cleaned = re.sub(mp, "", cleaned)
+
+        # 3. Clean up dangling introductions followed by the replaced notice or empty lines
         cleaned = re.sub(
             r'(?:(?:Here are the details|Below are the records|Here is the list)[^\n:]*:\s*\n*)(\*The complete matching records are displayed in the interactive table below\.\*)',
             r'\1',
@@ -477,4 +562,12 @@ class DataAnalysisAgent:
             flags=re.IGNORECASE
         )
 
+        # 4. If the user didn't request code, strip raw code blocks that resulted from tool narration
+        user_wants_code = any(w in user_query.lower() for w in ["show code", "write code", "python code", "sql query", "provide code", "give code"])
+        if not user_wants_code:
+            cleaned = re.sub(r'```(?:python|py)?\s*(?:import pandas|# Assuming df).*?```', '', cleaned, flags=re.DOTALL)
+            cleaned = re.sub(r'SELECT\s+AVG\([^)]+\)\s+FROM\s+df\s+WHERE[^\n]+(?:\n|$)', '', cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r'```(?:sql)?\s*SELECT.*?```', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
         return cleaned
